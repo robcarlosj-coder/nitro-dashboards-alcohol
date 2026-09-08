@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consumo Global de Álcool · Deixa Comigo Bebidas — Divisão Nitro</title>
+<meta name="description" content="Painel analítico de consumo global de bebidas alcoólicas. Divisão Nitro — Deixa Comigo Bebidas.">
+<link rel="icon" href="assets/nitro-logo-dark.png">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<!-- ====================================================== ícones (sprite) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v13"/>
+    </symbol>
+    <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>
+    </symbol>
+    <symbol id="i-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 9l6 6 6-6"/>
+    </symbol>
+    <symbol id="i-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- ============================================================ importação -->
+<section class="gate" id="gate">
+  <div class="gate__grid"></div>
+  <div class="gate__box">
+    <img class="gate__logo" src="assets/nitro-logo-white.png" alt="Nitro">
+    <p class="gate__kicker">Deixa Comigo Bebidas · Divisão Nitro</p>
+    <h1 class="gate__title">Inteligência de <em>consumo global</em><br>de bebidas alcoólicas</h1>
+    <p class="gate__lead">
+      Suba a planilha de consumo. O painel se calibra sozinho — estatística descritiva,
+      correlação de Pearson e mapa coroplético em um passo.
+    </p>
+
+    <label class="drop" id="drop" tabindex="0">
+      <input type="file" id="file" accept=".csv,.txt,text/csv" hidden>
+      <span class="drop__icon"><svg><use href="#i-upload"/></svg></span>
+      <span class="drop__title">Arraste o CSV aqui ou clique para selecionar</span>
+      <span class="drop__hint">também aceita colar com <kbd>Ctrl</kbd> + <kbd>V</kbd></span>
+    </label>
+
+    <p class="gate__schema">
+      Colunas esperadas:
+      <code>country</code><code>beer_servings</code><code>spirit_servings</code>
+      <code>wine_servings</code><code>total_litres_of_pure_alcohol</code><br>
+      Nomes em português (<code>pais</code>, <code>cerveja</code>, <code>destilados</code>,
+      <code>vinho</code>, <code>total_litros</code>) são reconhecidos automaticamente.
+    </p>
+    <div class="gate__err u-hidden" id="gateErr"></div>
+  </div>
+</section>
+
+<!-- ================================================================ header -->
+<header class="masthead">
+  <div class="masthead__in">
+    <div class="brand">
+      <img class="brand__logo" src="assets/nitro-logo-white.png" alt="Nitro">
+      <div class="brand__rule"></div>
+      <div class="brand__txt">
+        <div class="brand__unit">Deixa Comigo Bebidas</div>
+        <div class="brand__sub">Consumo Global · Divisão Nitro</div>
+      </div>
+    </div>
+    <div class="masthead__spacer"></div>
+    <div class="dataset-chip" id="dsChip" hidden>
+      <span class="dataset-chip__dot"></span>
+      <span class="dataset-chip__name" id="dsName">—</span>
+      <span class="dataset-chip__meta" id="dsMeta"></span>
+    </div>
+    <button class="btn btn--ghost-light btn--sm" id="btnExport" hidden>
+      <svg><use href="#i-download"/></svg> Exportar recorte
+    </button>
+    <button class="btn btn--accent btn--sm" id="btnReimport" hidden>
+      <svg><use href="#i-upload"/></svg> Trocar planilha
+    </button>
+  </div>
+</header>
+
+<!-- ================================================================= corpo -->
+<main class="shell" id="shell" hidden>
+
+  <!-- ----------------------------------------------------------- filtros -->
+  <section class="controls" aria-label="Filtros">
+    <div class="ctl">
+      <span class="ctl__label">Métrica</span>
+      <div class="seg" id="segMetric" role="group"></div>
+    </div>
+
+    <div class="ctl__sep"></div>
+
+    <div class="ctl">
+      <span class="ctl__label">Continentes</span>
+      <div class="chips" id="chipsCont"></div>
+    </div>
+
+    <div class="ctl__sep"></div>
+
+    <div class="ctl">
+      <div class="picker" id="pickCountry">
+        <button class="picker__btn" id="pickBtn" aria-expanded="false">
+          <span id="pickLbl">Todos os países</span>
+          <svg class="picker__caret"><use href="#i-caret"/></svg>
+        </button>
+        <div class="picker__pop">
+          <input class="picker__search" id="pickSearch" type="search" placeholder="Buscar país…" autocomplete="off">
+          <div class="picker__list" id="pickList"></div>
+          <div class="picker__foot">
+            <button class="btn btn--quiet btn--sm" id="pickAll" style="flex:1">Todos</button>
+            <button class="btn btn--quiet btn--sm" id="pickNone" style="flex:1">Nenhum</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ctl__sep"></div>
+
+    <div class="ctl">
+      <div class="range" id="rangeBox">
+        <div class="range__vals">
+          <span class="ctl__label" id="rangeLbl">Consumo</span>
+          <span class="u-num" id="rangeOut">—</span>
+        </div>
+        <div class="range__track">
+          <div class="range__rail"></div>
+          <div class="range__fill" id="rangeFill"></div>
+          <input type="range" id="rangeMin" min="0" max="100" value="0">
+          <input type="range" id="rangeMax" min="0" max="100" value="100">
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn--quiet btn--sm" id="btnReset" style="margin-left:auto">
+      <svg><use href="#i-reset"/></svg> Limpar filtros
+    </button>
+  </section>
+
+  <!-- -------------------------------------------------------------- KPIs -->
+  <section class="kpis" id="kpis" aria-label="Estatísticas descritivas"></section>
+
+  <!-- ------------------------------------------------------------- grade -->
+  <div class="grid">
+
+    <!-- mapa -->
+    <article class="card col-8" id="cardMap">
+      <div class="card__hd">
+        <div>
+          <h2 class="card__t">Mapa coroplético do consumo</h2>
+          <p class="card__s" id="mapSub">Intensidade por país segundo a métrica selecionada</p>
+        </div>
+        <div class="card__tools">
+          <div class="mini-seg" id="mapScale" role="group">
+            <button data-scale="linear" aria-pressed="true">Linear</button>
+            <button data-scale="quantile" aria-pressed="false">Quantil</button>
+          </div>
+        </div>
+      </div>
+      <div class="card__bd card__bd--flush">
+        <div class="map-wrap" id="map"></div>
+      </div>
+      <div class="legend" id="mapLegend"></div>
+    </article>
+
+    <!-- insights -->
+    <article class="card col-4" id="cardIns">
+      <div class="card__hd">
+        <div>
+          <h2 class="card__t">Leitura automática</h2>
+          <p class="card__s">Sinais derivados do recorte ativo</p>
+        </div>
+      </div>
+      <div class="card__bd"><div class="ins" id="insights"></div></div>
+    </article>
+
+    <!-- matriz de correlação -->
+    <article class="card col-4" id="cardCorr">
+      <div class="card__hd">
+        <div>
+          <h2 class="card__t">Correlação de Pearson</h2>
+          <p class="card__s">Matriz <em>r</em> entre os tipos de bebida — clique numa célula</p>
+        </div>
+      </div>
+      <div class="card__bd">
+        <div class="corr-grid" id="corrGrid"></div>
+        <div class="corr-scale">
+          <span>−1</span><div class="corr-scale__bar" id="corrBar"></div><span>+1</span>
+        </div>
+        <div style="margin-top:16px">
+          <div class="card__s" style="margin-bottom:8px">
+            <strong style="color:var(--teal-900);font-weight:600">Correlação tipo × total, por continente</strong>
+          </div>
+          <div id="corrByCont"></div>
+        </div>
+      </div>
+    </article>
+
+    <!-- dispersão -->
+    <article class="card col-8" id="cardScatter">
+      <div class="card__hd">
+        <div>
+          <h2 class="card__t">Dispersão e regressão</h2>
+          <p class="card__s" id="scatterSub">—</p>
+        </div>
+        <div class="card__tools">
+          <div class="mini-seg" id="scatterColor" role="group">
+            <button data-mode="cont" aria-pressed="true">Cor por continente</button>
+            <button data-mode="mono" aria-pressed="false">Monocromático</button>
+          </div>
+        </div>
+      </div>
+      <div class="card__bd">
+        <div class="scatter-meta" id="scatterMeta"></div>
+        <div id="scatter"></div>
+      </div>
+    </article>
+
+    <!-- ranking -->
+    <article class="card col-5" id="cardRank">
+      <div class="card__hd">
+        <div>
+          <h2 class="card__t">Ranking de países</h2>
+          <p class="card__s" id="rankSub">—</p>
+        </div>
+        <div class="card__tools">
+          <div class="mini-seg" id="rankDir" role="group">
+            <button data-dir="top" aria-pressed="true">Maiores</button>
+            <button data-dir="bottom" aria-pressed="false">Menores</button>
+          </div>
+        </div>
+      </div>
+      <div class="card__bd"><div id="rank"></div></div>
+    </article>
+
+    <!-- continentes -->
+    <article class="card col-7" id="cardCont">
+      <div class="card__hd">
+        <div>
+          <h2 class="card__t">Perfil por continente</h2>
+          <p class="card__s" id="contSub">Mix médio de doses/ano e dispersão do álcool puro</p>
+        </div>
+        <div class="card__tools">
+          <div class="mini-seg" id="contView" role="group">
+            <button data-view="mix" aria-pressed="true">Mix de bebidas</button>
+            <button data-view="box" aria-pressed="false">Distribuição</button>
+          </div>
+        </div>
+      </div>
+      <div class="card__bd"><div id="contChart"></div></div>
+    </article>
+
+    <!-- tabela -->
+    <article class="card col-12" id="cardTable">
+      <div class="card__hd">
+        <div>
+          <h2 class="card__t">Base analítica</h2>
+          <p class="card__s" id="tblSub">—</p>
+        </div>
+        <div class="card__tools">
+          <input class="picker__search" id="tblSearch" type="search" placeholder="Filtrar país…"
+                 style="width:180px" autocomplete="off">
+        </div>
+      </div>
+      <div class="card__bd card__bd--flush">
+        <div class="tbl-wrap"><table class="tbl" id="tbl"></table></div>
+      </div>
+    </article>
+  </div>
+
+  <footer class="foot">
+    <img src="assets/nitro-logo-dark.png" alt="Nitro">
+    <span>Deixa Comigo Bebidas — Divisão Nitro · Painel analítico de consumo global</span>
+    <span class="foot__sep" id="footMeta"></span>
+    <span class="foot__credits">
+      <span>Autor: <strong>RCJ.11</strong></span>
+      <span class="foot__div"></span>
+      <span>Versão 1.0</span>
+      <span class="foot__div"></span>
+      <a href="https://www.nitro.com.br" target="_blank" rel="noopener">www.nitro.com.br</a>
+    </span>
+  </footer>
+</main>
+
+<!-- ===================================================== suporte (flutuante) -->
+<button class="fab-support" id="fabSupport" type="button" aria-haspopup="dialog" aria-controls="supportModal">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+  <span>Suporte</span>
+</button>
+
+<div class="support-overlay" id="supportModal" hidden>
+  <div class="support-card" role="dialog" aria-modal="true" aria-labelledby="supTitle">
+    <div class="support-card__hd">
+      <div>
+        <h2 class="support-card__t" id="supTitle">Fale com o suporte</h2>
+        <p class="support-card__s">Divisão Nitro · Deixa Comigo Bebidas</p>
+      </div>
+      <button class="support-card__x" id="supClose" type="button" aria-label="Fechar">&times;</button>
+    </div>
+    <form class="support-form" id="supForm" novalidate>
+      <label class="support-field">
+        <span>Nome</span>
+        <input type="text" name="nome" required autocomplete="name">
+      </label>
+      <label class="support-field">
+        <span>E-mail</span>
+        <input type="email" name="email" required autocomplete="email">
+      </label>
+      <label class="support-field">
+        <span>Categoria</span>
+        <select name="categoria">
+          <option value="duvida">Dúvida</option>
+          <option value="erro">Erro / comportamento inesperado</option>
+          <option value="dados">Problema nos dados</option>
+          <option value="melhoria">Sugestão de melhoria</option>
+          <option value="outro">Outro</option>
+        </select>
+      </label>
+      <label class="support-field">
+        <span>Assunto</span>
+        <input type="text" name="assunto" required>
+      </label>
+      <label class="support-field">
+        <span>Descrição</span>
+        <textarea name="descricao" rows="4" required></textarea>
+      </label>
+      <div class="support-form__foot">
+        <button type="button" class="btn btn--quiet btn--sm" id="supCancel">Cancelar</button>
+        <button type="submit" class="btn btn--accent btn--sm">Enviar</button>
+      </div>
+      <p class="support-form__note">Modo de teste — o formulário ainda não é enviado; a integração com o banco será ligada depois.</p>
+    </form>
+  </div>
+</div>
+
+<div class="tip" id="tip" role="tooltip"></div>
+<div class="toast" id="toast"><span class="toast__dot"></span><span id="toastMsg"></span></div>
+
+<script src="assets/d3.v7.min.js"></script>
+<script src="assets/topojson-client.min.js"></script>
+<script src="assets/world-topo.js"></script>
+<script src="assets/geo-meta.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
