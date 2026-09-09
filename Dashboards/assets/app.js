@@ -126,7 +126,7 @@
   /* ======================================================== 3. CSV parser */
 
   const norm = (s) => String(s || "")
-    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase().replace(/[^a-z0-9]/g, "");
 
   function detectDelimiter(head) {
@@ -141,7 +141,7 @@
 
   /* parser tolerante a aspas, quebras dentro de campo e CRLF */
   function parseCSV(text) {
-    text = text.replace(/^﻿/, "");
+    text = text.replace(/^\uFEFF/, "");
     const delim = detectDelimiter(text.slice(0, text.indexOf("\n") + 1 || 400));
     const rows = [];
     let row = [], field = "", i = 0, quoted = false;
@@ -1397,7 +1397,7 @@
       d.beer, d.spirit, d.wine, d.servings, d.total,
       d.dominant ? M[d.dominant].label : ""
     ].join(","));
-    const blob = new Blob(["﻿" + [head.join(",")].concat(body).join("\n")],
+    const blob = new Blob(["\uFEFF" + [head.join(",")].concat(body).join("\n")],
       { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
