@@ -8,6 +8,10 @@ correlação de Pearson, mapa coroplético, ranking, dispersão e leitura de ins
 > pacotes, sem testes. O entregável é [`Dashboards/index.html`](Dashboards/index.html), aberto por
 > duplo clique. Todas as dependências (d3, topojson-client, fontes Poppins, TopoJSON do mundo) estão
 > vendorizadas em `Dashboards/assets/` — **funciona 100% offline, a partir de `file://`**.
+>
+> Duas capacidades dependem de rede e por isso vivem em *serverless functions* da Vercel:
+> o **chat com IA** e o **widget de clima**. Abertas do disco elas simplesmente não aparecem;
+> o painel analítico continua inteiro.
 
 ---
 
@@ -16,10 +20,15 @@ correlação de Pearson, mapa coroplético, ranking, dispersão e leitura de ins
 ```
 Dados/          drinks.csv — fonte com 193 países (recortes exportados pelo painel são ignorados no git)
 Referencias/    nitro_brand_book_by_pomelli.pdf — fonte da identidade visual
+api/
+  chat.js             proxy do Gemini com cadeia de modelos de fallback (lê GEMINI_API_KEY)
+  weather.js          proxy do OpenWeatherMap (lê OPENWEATHER_API_KEY)
+dev-server.py   servidor local: serve os estáticos e replica /api/* lendo o .env
+.env.example    modelo das variáveis (o .env real nunca vai para o git)
 Dashboards/
   index.html          o painel
   assets/
-    app.js            o motor (IIFE única, ~1500 linhas, 19 seções numeradas)
+    app.js            o motor (IIFE única, 21 seções numeradas)
     styles.css         tokens de marca em :root, grade de 12 colunas
     geo-meta.js        metadado geográfico de referência (gerado, não editar à mão)
     world-topo.js      TopoJSON do mundo como global JS (contorna CORS em file://)
@@ -35,15 +44,73 @@ Dashboards/
 
 Duplo clique em `Dashboards/index.html`. Nada mais.
 
-### Depuração com ferramentas que exigem HTTP
+### Com chat de IA e clima
 
-O painel de preview renderiza `file://` como snapshot estático (sem CSS/JS). Para depurar de verdade:
+Essas duas funções precisam das chaves, que ficam **no servidor**. Copie o modelo e preencha:
+
+```bash
+cp .env.example .env
+```
+
+```bash
+python dev-server.py
+```
+
+O `dev-server.py` serve os estáticos e replica `/api/chat` e `/api/weather` lendo o `.env` —
+as mesmas rotas que em produção são *serverless functions*. Abra
+<http://127.0.0.1:8777/Dashboards/index.html>.
+
+### Depuração sem as chaves
+
+O painel de preview renderiza `file://` como snapshot estático (sem CSS/JS). Para depurar só a
+parte analítica basta:
 
 ```bash
 python -m http.server 8777
 ```
 
-e abra <http://127.0.0.1:8777/Dashboards/index.html>.
+---
+
+## Chat com IA e clima
+
+### Onde ficam as chaves
+
+Nunca no navegador. As duas credenciais vivem em variáveis de ambiente lidas apenas do lado do
+servidor — `.env` em desenvolvimento, *Environment Variables* do projeto na Vercel em produção:
+
+| Variável               | Usada por       | O que é                                            |
+|------------------------|-----------------|----------------------------------------------------|
+| `GEMINI_API_KEY`       | `/api/chat`     | Chave do Google Gemini                             |
+| `GEMINI_MODELS`        | `/api/chat`     | Cadeia de fallback, em ordem (opcional)            |
+| `OPENWEATHER_API_KEY`  | `/api/weather`  | Chave do OpenWeatherMap                            |
+
+O `.env` está no `.gitignore`. **Não existe `config.js`** — nenhuma chave é servida ao cliente.
+
+### Fallback de modelos
+
+`/api/chat` percorre os modelos em ordem e avança para o próximo diante de 429 (limite), 404
+(modelo aposentado), 5xx, falha de rede ou resposta vazia. Um 400/403 interrompe a cadeia: o erro
+se repetiria em todos. Padrão atual:
+
+`gemini-3.6-flash` → `gemini-3.5-flash-lite` → `gemini-3.8-flash` → `gemini-3.5-flash` → `gemini-flash-latest`
+
+A ordem alterna capacidade e velocidade de propósito: sob carga os modelos *lite* costumam responder
+enquanto os maiores devolvem 503. Esses 503 de *high demand* são frequentes e transitórios, então a
+cadeia é o caminho normal, não a exceção. Dois limites protegem o usuário: **24s por tentativa** e
+**52s para a cadeia inteira** (a function tem 60s em `vercel.json`). Quando toda a cadeia devolve
+429/503, a mensagem diz que é sobrecarga passageira e pede nova tentativa — em vez de sugerir um erro
+de configuração que não existe. O rodapé de cada resposta diz qual modelo atendeu e quantas
+tentativas foram gastas antes.
+
+### Como os filtros são respeitados
+
+A cada pergunta o cliente serializa o recorte a partir de `filtered()` — a mesma função que alimenta
+todos os gráficos. Vai no contexto: os filtros ativos em texto, estatística descritiva das quatro
+métricas, correlações de Pearson com p-valor, agregado por continente e as linhas do recorte. O
+*prompt* de sistema proíbe o modelo de usar qualquer outro dado e o obriga a dizer quando um filtro
+exclui o que foi perguntado — na prática ele responde "o Japão está fora do recorte, afrouxe o
+filtro de continentes" em vez de inventar o número. As etiquetas no topo do chat espelham o recorte
+que a IA enxerga naquele instante.
 
 ---
 

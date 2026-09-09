@@ -33,6 +33,11 @@
     Europe: "#3f7d5f", Oceania: "#8fa1ab"
   };
 
+  /* As serverless functions (/api/chat e /api/weather) so existem quando o painel
+     e servido por HTTP. Aberto direto do disco (file://) o dashboard continua
+     inteiro, mas o chat com IA e o widget de clima ficam fora do ar. */
+  const TEM_BACKEND = /^https?:$/.test(location.protocol);
+
   /* aliases aceitos para cada coluna (normalizados: minúsculo, sem acento/símbolo) */
   const COL_ALIASES = {
     country: ["country", "pais", "paises", "nation", "nome", "territorio", "local"],
@@ -267,6 +272,9 @@
     tblQuery: ""
   };
 
+  /* preenchido pela secao 21; renderAll() o aciona a cada mudanca de filtro */
+  let escopoIA = () => {};
+
   const $ = (id) => document.getElementById(id);
   const el = {};
   ["gate", "gateErr", "drop", "file", "shell", "dsChip", "dsName", "dsMeta",
@@ -338,6 +346,7 @@
     el.btnReimport.hidden = false;
     el.btnExport.hidden = false;
     el.shell.hidden = false;
+    if (TEM_BACKEND) $("fabAI").hidden = false;
     el.gate.classList.add("is-gone");
 
     const semGeo = res.data.filter((d) => !atlasKey(d.country)).length;
@@ -1409,6 +1418,7 @@
     renderRank();
     renderContinents();
     renderTable();
+    escopoIA();
   }
 
   function revealCards() {
@@ -1476,6 +1486,363 @@
       form.reset();
       close();
       toast("Chamado registrado em modo de teste — integração com o banco pendente");
+    });
+  })();
+
+  /* ============================================== 20. clima (masthead) */
+  /* Consulta /api/weather com as coordenadas do navegador. A chave do
+     OpenWeatherMap vive no .env do servidor e nunca chega até aqui.
+     Em file:// não há backend: o widget simplesmente não aparece. */
+
+  (function clima() {
+    const box = $("wx");
+    if (!box || !TEM_BACKEND) return;
+
+    /* mapeia o código do ícone da OWM para um emoji — evita mais uma
+       requisição de rede e mantém o widget leve */
+    const ICONES = {
+      "01d": "☀️", "01n": "🌙", "02d": "🌤️", "02n": "☁️",
+      "03d": "☁️", "03n": "☁️", "04d": "☁️", "04n": "☁️",
+      "09d": "🌧️", "09n": "🌧️", "10d": "🌦️", "10n": "🌧️",
+      "11d": "⛈️", "11n": "⛈️", "13d": "🌨️", "13n": "🌨️",
+      "50d": "🌫️", "50n": "🌫️"
+    };
+
+    function mostraErro(msg) {
+      box.hidden = false;
+      box.classList.add("wx--erro");
+      $("wxIcon").textContent = "🌡️";
+      $("wxTemp").textContent = msg;
+      $("wxPlace").textContent = "";
+      box.title = msg;
+    }
+
+    async function busca(lat, lon) {
+      let r, d;
+      try {
+        r = await fetch("/api/weather?lat=" + lat.toFixed(4) + "&lon=" + lon.toFixed(4));
+        d = await r.json();
+      } catch {
+        return mostraErro("Clima indisponível");
+      }
+      if (!r.ok) return mostraErro(d && d.erro ? "Clima indisponível" : "Clima indisponível");
+
+      box.hidden = false;
+      box.classList.remove("wx--erro");
+      $("wxIcon").textContent = ICONES[d.icone] || "🌡️";
+      $("wxTemp").textContent = d.temp + "°C";
+      $("wxPlace").textContent = d.cidade + (d.pais ? " · " + d.pais : "");
+
+      const det = [
+        d.descricao ? d.descricao.charAt(0).toUpperCase() + d.descricao.slice(1) : "",
+        "Sensação " + d.sensacao + "°C",
+        "Mín " + d.minima + "° / Máx " + d.maxima + "°",
+        d.umidade != null ? "Umidade " + d.umidade + "%" : "",
+        d.vento != null ? "Vento " + d.vento + " km/h" : ""
+      ].filter(Boolean);
+      box.title = det.join(" · ");
+    }
+
+    if (!navigator.geolocation) return mostraErro("Sem geolocalização");
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => busca(pos.coords.latitude, pos.coords.longitude),
+      () => mostraErro("Localização negada"),
+      { timeout: 9000, maximumAge: 15 * 60 * 1000 }
+    );
+  })();
+
+  /* ========================================== 21. chat com IA (Gemini) */
+  /* Botão na base central abre um chat que responde SOBRE O RECORTE ATIVO.
+     O contexto é montado a cada pergunta a partir de filtered() — a mesma
+     função que alimenta os gráficos —, então os filtros são sempre
+     respeitados. Nada é pré-calculado nem mockado. */
+
+  (function chatIA() {
+    const fab   = $("fabAI");
+    const painel = $("aiPanel");
+    const form  = $("aiForm");
+    if (!fab || !painel || !form || !TEM_BACKEND) return;
+
+    const log = $("aiLog"), input = $("aiInput"), send = $("aiSend"), sug = $("aiSug");
+    const historico = [];          // {papel:"eu"|"ia", texto}
+    let ocupado = false;
+
+    /* ---------------------------------------------- descrição dos filtros */
+
+    /* rótulo curto do recorte, mostrado como etiquetas no topo do chat */
+    function rotulosFiltro() {
+      const m = M[state.metric];
+      const tags = [["Métrica", m.label]];
+
+      const conts = state.continents.size
+        ? [...state.continents].map((c) => CONT_PT[c] || c).join(", ")
+        : "todos";
+      tags.push(["Continentes", conts]);
+
+      tags.push(["Países", state.countries.size
+        ? state.countries.size + " selecionado" + (state.countries.size > 1 ? "s" : "")
+        : "todos"]);
+
+      if (state.range) {
+        const base = preRange().map((d) => d[state.metric]);
+        const lo = S.min(base), hi = S.max(base);
+        const cheio = !base.length ||
+          (state.range[0] <= lo + 1e-9 && state.range[1] >= hi - 1e-9);
+        tags.push(["Faixa", cheio ? "completa"
+          : fmtM(state.range[0], m) + " – " + fmtM(state.range[1], m) + " " + m.unit]);
+      }
+      return tags;
+    }
+
+    function atualizaEscopo() {
+      const alvo = $("aiScope");
+      if (!alvo) return;
+      const n = filtered().length;
+      alvo.innerHTML =
+        '<span class="ai__tag ai__tag--n"><b>' + n + "</b> país" + (n === 1 ? "" : "es") + "</span>" +
+        rotulosFiltro().map(([k, v]) =>
+          '<span class="ai__tag">' + k + ": <b>" + esc(v) + "</b></span>").join("");
+    }
+    /* exposto para renderAll() manter as etiquetas em dia */
+    escopoIA = atualizaEscopo;
+
+    /* ------------------------------------- serialização do recorte ativo */
+
+    /* Monta o texto que vai como contexto ao modelo. Tudo sai de filtered():
+       filtros, estatística descritiva, correlações, agregado por continente e
+       as linhas em si. Com 193 países o payload fica na casa de poucos KB. */
+    function contexto() {
+      const rows = filtered();
+      const m = M[state.metric];
+      const L = [];
+
+      L.push("FILTROS ATIVOS NO PAINEL:");
+      rotulosFiltro().forEach(([k, v]) => L.push("- " + k + ": " + v));
+      L.push("- Países no recorte: " + rows.length + " de " + state.raw.length + " da planilha");
+      L.push("- Planilha de origem: " + state.fileName);
+
+      if (state.countries.size) {
+        L.push("- ATENÇÃO: há filtro de país ativo. Só existem no recorte: " +
+               [...state.countries].join(", "));
+      }
+      if (!rows.length) {
+        L.push("", "O recorte está VAZIO — nenhum país passa pelos filtros atuais.");
+        return L.join("\n");
+      }
+
+      L.push("", "UNIDADES: álcool puro em L/hab.ano; cerveja, destilados e vinho em doses/ano.");
+
+      L.push("", "ESTATÍSTICA DESCRITIVA DO RECORTE:");
+      ALLKEYS.forEach((k) => {
+        const st = describe(rows.map((d) => d[k]));
+        const mk = M[k];
+        L.push("- " + mk.label + " (" + mk.unit + "): n=" + st.n +
+               "; soma=" + fmtM(st.sum, mk) + "; média=" + fmtM(st.mean, mk) +
+               "; mediana=" + fmtM(st.median, mk) + "; desvio=" + fmtM(st.std, mk) +
+               "; min=" + fmtM(st.min, mk) + "; Q1=" + fmtM(st.q1, mk) +
+               "; Q3=" + fmtM(st.q3, mk) + "; max=" + fmtM(st.max, mk));
+      });
+
+      L.push("", "CORRELAÇÃO DE PEARSON NO RECORTE (r, n=" + rows.length + "):");
+      for (let i = 0; i < ALLKEYS.length; i++) {
+        for (let j = i + 1; j < ALLKEYS.length; j++) {
+          const a = ALLKEYS[i], b = ALLKEYS[j];
+          const r = S.pearson(rows.map((d) => d[a]), rows.map((d) => d[b]));
+          L.push("- " + M[a].label + " x " + M[b].label + ": r=" + fmt(r, 3) +
+                 " (p≈" + fmt(S.pValue(r, rows.length), 4) + ")");
+        }
+      }
+
+      L.push("", "AGREGADO POR CONTINENTE (dentro do recorte):");
+      presentContinents().forEach((c) => {
+        const sub = rows.filter((d) => d.continent === c);
+        if (!sub.length) return;
+        L.push("- " + (CONT_PT[c] || c) + ": n=" + sub.length +
+               "; " + ALLKEYS.map((k) =>
+                 M[k].label + " média " + fmtM(S.mean(sub.map((d) => d[k])), M[k])).join("; "));
+      });
+
+      L.push("", "LINHAS DO RECORTE (ordenadas pela métrica ativa, " + m.label + " decrescente):");
+      L.push("pais | continente | alcool_puro_L | cerveja_doses | destilados_doses | vinho_doses");
+      rows.slice()
+        .sort((a, b) => b[state.metric] - a[state.metric])
+        .forEach((d) => {
+          L.push([d.country, CONT_PT[d.continent] || d.continent,
+                  fmt(d.total, 2), fmt(d.beer, 0), fmt(d.spirit, 0), fmt(d.wine, 0)].join(" | "));
+        });
+
+      return L.join("\n");
+    }
+
+    /* ------------------------------------------------------ interface */
+
+    function esc(s) {
+      return String(s).replace(/[&<>"]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    }
+
+    /* markdown mínimo: negrito, itálico e lista com hífen — nada de HTML cru */
+    function formata(txt) {
+      const linhas = esc(txt).split(/\n+/).map((l) => l.trim()).filter(Boolean);
+      let html = "", emLista = false;
+      linhas.forEach((l) => {
+        const item = /^[-*•]\s+/.test(l);
+        if (item && !emLista) { html += "<ul>"; emLista = true; }
+        if (!item && emLista) { html += "</ul>"; emLista = false; }
+        const corpo = l.replace(/^[-*•]\s+/, "")
+          .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+          .replace(/(^|\s)\*(?!\s)(.+?)\*(?=\s|$)/g, "$1<em>$2</em>");
+        html += item ? "<li>" + corpo + "</li>" : "<p>" + corpo + "</p>";
+      });
+      if (emLista) html += "</ul>";
+      return html;
+    }
+
+    function limpaVazio() {
+      const v = log.querySelector(".ai-msg--vazio");
+      if (v) v.remove();
+    }
+
+    function bolha(papel, html, classe) {
+      limpaVazio();
+      const div = document.createElement("div");
+      div.className = "ai-msg ai-msg--" + papel + (classe ? " " + classe : "");
+      div.innerHTML = html;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+      return div;
+    }
+
+    function estadoVazio() {
+      log.innerHTML = '<div class="ai-msg ai-msg--vazio">' +
+        "Pergunte o que quiser sobre os <b>" + filtered().length +
+        "</b> países que passam pelos filtros de agora." +
+        "</div>";
+    }
+
+    /* sugestões geradas a partir do próprio recorte — nada fixo */
+    function sugestoes() {
+      const rows = filtered();
+      const m = M[state.metric];
+      if (!rows.length) { sug.innerHTML = ""; return; }
+      const topo = rows.slice().sort((a, b) => b[state.metric] - a[state.metric])[0];
+      const conts = state.continents.size
+        ? [...state.continents] : presentContinents();
+
+      const perguntas = [
+        "Resuma o recorte atual em três pontos",
+        "Por que " + topo.country + " lidera em " + m.label.toLowerCase() + "?",
+        conts.length > 1
+          ? "Compare " + (CONT_PT[conts[0]] || conts[0]) + " e " +
+            (CONT_PT[conts[1]] || conts[1])
+          : "Qual o perfil de bebidas deste recorte?",
+        "Que oportunidade comercial os dados sugerem?"
+      ];
+
+      sug.innerHTML = "";
+      perguntas.forEach((p) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = p;
+        b.addEventListener("click", () => { input.value = p; enviar(); });
+        sug.appendChild(b);
+      });
+    }
+
+    /* ------------------------------------------------------- envio */
+
+    async function enviar() {
+      if (ocupado) return;
+      const pergunta = input.value.trim();
+      if (!pergunta) return;
+
+      if (!state.raw.length) {
+        bolha("ia", "<p>Suba a planilha primeiro — sem dados não há o que analisar.</p>", "ai-msg--erro");
+        return;
+      }
+
+      ocupado = true;
+      send.disabled = true;
+      input.value = "";
+      input.style.height = "auto";
+      sug.innerHTML = "";
+
+      bolha("eu", esc(pergunta).replace(/\n/g, "<br>"));
+      const carregando = bolha("ia", '<span class="ai-dots"><i></i><i></i><i></i></span>');
+
+      let r, d;
+      try {
+        r = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pergunta, contexto: contexto(), historico })
+        });
+        d = await r.json();
+      } catch (e) {
+        carregando.remove();
+        bolha("ia", "<p>Não consegui falar com o serviço de IA. Verifique a conexão.</p>",
+              "ai-msg--erro");
+        ocupado = false; send.disabled = false;
+        return;
+      }
+
+      carregando.remove();
+
+      if (!r.ok || !d || !d.resposta) {
+        const msg = (d && d.erro) || "O serviço de IA não respondeu.";
+        bolha("ia", "<p>" + esc(msg) + "</p>", "ai-msg--erro");
+      } else {
+        historico.push({ papel: "eu", texto: pergunta });
+        historico.push({ papel: "ia", texto: d.resposta });
+        const nTent = Array.isArray(d.tentativas) ? d.tentativas.length : 0;
+        bolha("ia", formata(d.resposta) +
+          '<span class="ai-msg__meta">' + esc(d.modelo || "gemini") +
+          " · " + filtered().length + " países no recorte" +
+          (nTent ? " · fallback após " + nTent + " tentativa" + (nTent > 1 ? "s" : "") : "") +
+          "</span>");
+      }
+
+      ocupado = false;
+      send.disabled = false;
+      input.focus();
+    }
+
+    /* ------------------------------------------------------ abre/fecha */
+
+    function onKey(e) { if (e.key === "Escape" && !painel.hidden) fecha(); }
+
+    function abre() {
+      painel.hidden = false;
+      fab.hidden = true;
+      fab.setAttribute("aria-expanded", "true");
+      atualizaEscopo();
+      if (!log.children.length || log.querySelector(".ai-msg--vazio")) estadoVazio();
+      if (!historico.length) sugestoes();
+      input.focus();
+      document.addEventListener("keydown", onKey);
+    }
+    function fecha() {
+      painel.hidden = true;
+      fab.hidden = !state.raw.length;
+      fab.setAttribute("aria-expanded", "false");
+      document.removeEventListener("keydown", onKey);
+      fab.focus();
+    }
+
+    fab.addEventListener("click", abre);
+    $("aiClose").addEventListener("click", fecha);
+
+    form.addEventListener("submit", (e) => { e.preventDefault(); enviar(); });
+
+    /* Enter envia; Shift+Enter quebra linha */
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); }
+    });
+    /* textarea que cresce com o conteúdo, até o teto do CSS */
+    input.addEventListener("input", () => {
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, 116) + "px";
     });
   })();
 
