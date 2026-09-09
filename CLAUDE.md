@@ -12,7 +12,12 @@ o entregável é `Dashboards/index.html`, aberto por duplo clique.
 Dados/          drinks.csv (fonte, 193 países) e recortes exportados pelo painel
 Referencias/    nitro_brand_book_by_pomelli.pdf (fonte da identidade visual)
 Dashboards/     index.html + assets/
+api/            chat.js e weather.js — serverless functions da Vercel (CommonJS, zero dependências)
+dev-server.py   servidor local que serve os estáticos e replica /api/* lendo o .env
 ```
+
+Duas funções dependem de rede — o **chat com IA** e o **widget de clima**. São o único ponto do
+projeto que não é estático, e existem só quando o painel é servido por HTTP.
 
 ## Executar e depurar
 
@@ -27,6 +32,9 @@ python -m http.server 8777
 e abrir `http://127.0.0.1:8777/Dashboards/index.html`. Não existe upload de arquivo nas ferramentas de
 browser; para injetar o CSV no navegador automatizado, dispare o handler real de drop via `javascript_tool`
 com `fetch` + `File` + `DataTransfer` + `dispatchEvent(new DragEvent('drop', …))`.
+
+Para exercitar o chat de IA ou o clima é preciso das chaves, então use `python dev-server.py` no lugar
+do `http.server`: ele carrega o `.env` e replica `/api/chat` e `/api/weather`.
 
 ## Restrições de arquitetura (não regredir)
 
@@ -43,13 +51,20 @@ com `fetch` + `File` + `DataTransfer` + `dispatchEvent(new DragEvent('drop', …
    derivadas em `:root`. Séries: `--c-beer #94c356`, `--c-spirit #56a8c3`, `--c-wine #0e5c88`.
    Logos extraídos do PDF (`nitro-logo-white.png` na masthead escura, `nitro-logo-dark.png` no rodapé/favicon).
 5. **Idioma da interface e dos comentários de código: português.**
+6. **Chave de API nunca chega ao navegador.** Não criar `config.js` nem embutir credencial no
+   cliente: `GEMINI_API_KEY` e `OPENWEATHER_API_KEY` só existem em `process.env`, lidas pelas
+   functions em `api/`. O `.env` está no `.gitignore`; `.env.example` documenta o formato.
 
 ## `assets/app.js` — o motor
 
-IIFE única, ~1500 linhas, organizada em 19 seções numeradas em comentário (`/* ==== N. nome */`).
+IIFE única, organizada em 21 seções numeradas em comentário (`/* ==== N. nome */`).
 Navegue por esses cabeçalhos. Ordem: configuração → estatística → parser CSV → estado → seleção derivada →
 importação → controles → tooltip → mapa → KPIs → correlação → dispersão → ranking → continentes → insights →
-tabela → exportar → orquestração → suporte.
+tabela → exportar → orquestração → suporte → clima → chat com IA.
+
+`TEM_BACKEND` (seção 1) é `true` só sob `http(s)://`. As seções 20 e 21 desistem na primeira linha
+quando ele é falso, e os elementos correspondentes nascem `hidden` no HTML — é assim que o painel
+continua íntegro aberto do disco.
 
 **Fluxo de dados:** `state` (objeto único: `raw`, `metric`, `continents`, `countries`, `range`, e modos de
 visualização) → `preRange()` (continente + país) → `filtered()` (aplica a faixa) → cada `renderX()` lê
@@ -88,6 +103,39 @@ Não editar à mão. São produzidos por `gen_meta.py` (fica no scratchpad da se
 `Dados/drinks.csv` e um `c110m.json` do world-atlas e emite `window.NITRO_GEO`
 (`continent`, `atlasAlias`, `microStates`, `ptNames`) e `window.NITRO_WORLD_TOPO`. Ao trocar o dataset por
 um com países novos, regenere `geo-meta.js` — o script imprime os países sem continente e sem geometria.
+
+## Seções 20 e 21 — clima e chat com IA
+
+**Clima (20).** `navigator.geolocation` → `GET /api/weather?lat&lon`. A function devolve só os campos
+que o widget usa; o resto da resposta da OWM não vaza. Códigos de ícone viram emoji por tabela local,
+para não gastar outra requisição. Falha de permissão ou de rede vira texto discreto, nunca erro.
+
+**Chat (21).** O ponto sensível é `contexto()`: monta o texto enviado ao modelo **a partir de
+`filtered()`**, nunca de `state.raw`. É isso que faz a IA respeitar os filtros. Inclui filtros em
+texto, `describe()` das quatro métricas, correlações com p-valor, agregado por continente e as linhas
+do recorte. Ao mexer em filtros ou métricas, verifique se `contexto()` e `rotulosFiltro()` acompanham.
+
+`renderAll()` chama `escopoIA()` — um hook que a seção 21 sobrescreve — para manter as etiquetas de
+filtro do chat sincronizadas. Se a seção 21 não rodar (sem backend), o hook fica sendo um no-op.
+
+Respostas do modelo passam por `formata()`, que aceita só negrito, itálico e lista com hífen sobre
+texto já escapado. **Não trocar por `innerHTML` cru** — é conteúdo vindo de fora.
+
+### `api/chat.js` — a cadeia de fallback
+
+CommonJS (`module.exports`), sem `package.json`, sem dependência: `fetch` global do runtime Node.
+Avança para o próximo modelo em 429/404/5xx/rede/resposta vazia; para em 400/403, que se repetiriam.
+Dois limites protegem o usuário e o teto de 60s da function: `TIMEOUT_MS` (24s por tentativa) e
+`ORCAMENTO_MS` (52s para a cadeia). Os 503 de *high demand* do Gemini são comuns e transitórios — a
+cadeia disparar é o comportamento normal, não sintoma de bug. **Não baixe `TIMEOUT_MS` achando que
+deixa o painel mais responsivo:** sob carga o serviço leva 30s para responder, e um teto apertado
+descarta modelos que teriam respondido, fazendo a cadeia inteira falhar. A ordem também não é por
+capacidade — os *lite* vêm cedo porque respondem quando os maiores estão em 503.
+
+Ao mudar a cadeia, confirme antes que os modelos existem:
+`GET https://generativelanguage.googleapis.com/v1beta/models` com o header `x-goog-api-key`. O Google
+aposenta versão de flash com frequência e o erro é um 404 com a mensagem de substituição. Mantenha
+`MODELOS_PADRAO` em `api/chat.js` e `dev-server.py` em sincronia.
 
 ## Estado em aberto
 

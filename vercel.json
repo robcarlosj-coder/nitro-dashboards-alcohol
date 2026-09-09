@@ -2,7 +2,21 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/", "destination": "/Dashboards/index.html" },
-    { "source": "/assets/:path*", "destination": "/Dashboards/assets/:path*" }
-  ]
+    {
+      "source": "/",
+      "destination": "/Dashboards/index.html"
+    },
+    {
+      "source": "/assets/:path*",
+      "destination": "/Dashboards/assets/:path*"
+    }
+  ],
+  "functions": {
+    "api/chat.js": {
+      "maxDuration": 60
+    },
+    "api/weather.js": {
+      "maxDuration": 15
+    }
+  }
 }

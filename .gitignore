@@ -38,3 +38,11 @@ $RECYCLE.BIN/
 # Arquivos temporários e de bloqueio do Office (OneDrive)
 ~$*
 *.tmp
+
+# Segredos: as chaves vivem no .env, que nunca entra no repositorio
+.env
+.env.local
+.env.*.local
+
+# Cache do CLI da Vercel
+.vercel/

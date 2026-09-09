@@ -2,3 +2,5 @@
 Dados/
 Referencias/
 CLAUDE.md
+dev-server.py
+.env.example

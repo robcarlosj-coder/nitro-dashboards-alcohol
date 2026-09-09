@@ -25,6 +25,13 @@
     <symbol id="i-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
       <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>
     </symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/>
+      <path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>
+    </symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 3L3 10.5l7 3 3 7z"/><path d="M21 3l-8 11"/>
+    </symbol>
   </defs>
 </svg>
 
@@ -70,6 +77,16 @@
       </div>
     </div>
     <div class="masthead__spacer"></div>
+
+    <!-- clima do usuário: preenchido por /api/weather; some se o backend não existe -->
+    <div class="wx" id="wx" hidden>
+      <span class="wx__icon" id="wxIcon" aria-hidden="true"></span>
+      <span class="wx__body">
+        <span class="wx__temp" id="wxTemp">—</span>
+        <span class="wx__place" id="wxPlace">—</span>
+      </span>
+    </div>
+
     <div class="dataset-chip" id="dsChip" hidden>
       <span class="dataset-chip__dot"></span>
       <span class="dataset-chip__name" id="dsName">—</span>
@@ -286,6 +303,41 @@
     </span>
   </footer>
 </main>
+
+<!-- ====================================== chat com IA (Gemini · base central) -->
+<button class="fab-ai" id="fabAI" type="button" hidden aria-haspopup="dialog" aria-controls="aiPanel" aria-expanded="false">
+  <svg aria-hidden="true"><use href="#i-spark"/></svg>
+  <span>Conversar com os dados</span>
+</button>
+
+<section class="ai" id="aiPanel" hidden role="dialog" aria-modal="false" aria-labelledby="aiTitle">
+  <header class="ai__hd">
+    <div class="ai__id">
+      <span class="ai__badge"><svg aria-hidden="true"><use href="#i-spark"/></svg></span>
+      <div>
+        <h2 class="ai__t" id="aiTitle">Conversar com os dados</h2>
+        <p class="ai__s">Gemini · responde apenas sobre o recorte filtrado</p>
+      </div>
+    </div>
+    <button class="ai__x" id="aiClose" type="button" aria-label="Fechar chat">&times;</button>
+  </header>
+
+  <!-- espelho dos filtros ativos: deixa explícito o recorte que a IA enxerga -->
+  <div class="ai__scope" id="aiScope"></div>
+
+  <div class="ai__log" id="aiLog" aria-live="polite"></div>
+
+  <div class="ai__sug" id="aiSug"></div>
+
+  <form class="ai__form" id="aiForm">
+    <textarea id="aiInput" rows="1" placeholder="Pergunte sobre o recorte ativo…"
+              autocomplete="off" maxlength="4000"></textarea>
+    <button class="ai__send" id="aiSend" type="submit" aria-label="Enviar pergunta">
+      <svg aria-hidden="true"><use href="#i-send"/></svg>
+    </button>
+  </form>
+  <p class="ai__foot" id="aiFoot">A IA lê somente as linhas que passam pelos filtros atuais.</p>
+</section>
 
 <!-- ===================================================== suporte (flutuante) -->
 <button class="fab-support" id="fabSupport" type="button" aria-haspopup="dialog" aria-controls="supportModal">
