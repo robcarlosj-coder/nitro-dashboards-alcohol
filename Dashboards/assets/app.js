@@ -519,8 +519,17 @@
     const step = m.step;
     const a = Math.floor(lo / step) * step, b = Math.ceil(hi / step) * step;
     [el.rangeMin, el.rangeMax].forEach((r) => { r.min = a; r.max = b; r.step = step; });
-    if (resetToFull || !state.range) state.range = [a, b];
-    state.range = [Math.max(a, state.range[0]), Math.min(b, state.range[1])];
+    /* sem país no filtro (ex.: 2º clique que remove o último) o domínio volta ao
+       completo — a faixa precisa acompanhar, senão fica presa na janela estreita
+       fixada automaticamente enquanto o país estava selecionado. */
+    if (resetToFull || !state.range || !state.countries.size) {
+      state.range = [a, b];
+    } else {
+      state.range = [Math.max(a, state.range[0]), Math.min(b, state.range[1])];
+      /* clamp pode inverter (min > max) quando o domínio novo não alcança a
+         faixa anterior; nesse caso também volta ao domínio completo. */
+      if (state.range[0] >= state.range[1]) state.range = [a, b];
+    }
     el.rangeMin.value = state.range[0];
     el.rangeMax.value = state.range[1];
     el.rangeLbl.textContent = m.label;
