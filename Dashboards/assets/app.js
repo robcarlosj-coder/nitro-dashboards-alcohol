@@ -57,6 +57,11 @@
   const fmtCompact = (v) => (v == null || !isFinite(v)) ? "—"
     : new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(v);
 
+  /* escapa entidades HTML — texto vindo do CSV (nome de país) nunca entra cru
+     em innerHTML: tabela, tooltip e insights passam por aqui */
+  const escHtml = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
   /* ========================================================= 2. estatística */
 
   const S = {
@@ -584,7 +589,7 @@
   function countryTip(d) {
     const m = M[state.metric];
     let h = '<div class="tip__cont">' + (CONT_PT[d.continent] || d.continent) + "</div>";
-    h += '<div class="tip__t">' + d.country + "</div>";
+    h += '<div class="tip__t">' + escHtml(d.country) + "</div>";
     h += '<div class="tip__r"><span>Álcool puro</span><b>' + fmt(d.total, 2) + " L</b></div>";
     TYPES.forEach((t) => {
       h += '<div class="tip__r"><span>' + M[t].label + "</span><b>" + fmt(d[t], 0) +
@@ -1237,7 +1242,7 @@
     const cv = st.std / st.mean;
 
     out.push(["01", "Líder do recorte",
-      "<b>" + top.country + "</b> registra <b>" + fmtM(top[state.metric], m) + " " + m.unit +
+      "<b>" + escHtml(top.country) + "</b> registra <b>" + fmtM(top[state.metric], m) + " " + m.unit +
       "</b> — " + fmt(top[state.metric] / (st.mean || 1), 1) + "× a média do recorte (" +
       fmtM(st.mean, m) + ").", true]);
 
@@ -1292,11 +1297,11 @@
     if (zeros.length) {
       out.push(["06", "Consumo nulo declarado",
         "<b>" + zeros.length + "</b> país(es) com zero litro de álcool puro: " +
-        zeros.slice(0, 6).map((d) => d.country).join(", ") +
+        zeros.slice(0, 6).map((d) => escHtml(d.country)).join(", ") +
         (zeros.length > 6 ? " e mais " + (zeros.length - 6) : "") + "."]);
     } else {
       out.push(["06", "Piso do recorte",
-        "Menor consumo em <b>" + bot.country + "</b> (" + fmtM(bot[state.metric], m) + " " +
+        "Menor consumo em <b>" + escHtml(bot.country) + "</b> (" + fmtM(bot[state.metric], m) + " " +
         m.unit + "), " + fmt((st.mean - bot[state.metric]) / (st.std || 1), 1) +
         " desvios-padrão abaixo da média."]);
     }
@@ -1350,10 +1355,10 @@
     h += "</tr></thead><tbody>";
 
     rows.forEach((d, i) => {
-      h += '<tr data-c="' + d.country.replace(/"/g, "&quot;") + '"' +
+      h += '<tr data-c="' + escHtml(d.country) + '"' +
            (state.countries.has(d.country) ? ' class="is-sel"' : "") + ">" +
         '<td class="tbl__rank u-num">' + (i + 1) + "</td>" +
-        '<td class="tbl__cty">' + d.country + "</td>" +
+        '<td class="tbl__cty">' + escHtml(d.country) + "</td>" +
         '<td><span class="tbl__cont">' + (CONT_PT[d.continent] || d.continent) + "</span></td>" +
         '<td class="u-num">' + fmt(d.beer, 0) + "</td>" +
         '<td class="u-num">' + fmt(d.spirit, 0) + "</td>" +
