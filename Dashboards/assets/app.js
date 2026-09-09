@@ -386,6 +386,11 @@
     if (e.dataTransfer.files && e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
   });
   window.addEventListener("paste", (e) => {
+    /* não sequestrar a colagem feita dentro de um campo editável
+       (descrição do suporte, busca de país, busca da tabela) */
+    const alvo = e.target;
+    if (alvo && (alvo.isContentEditable ||
+        (alvo.closest && alvo.closest("input, textarea, select, [contenteditable]")))) return;
     const t = (e.clipboardData || window.clipboardData).getData("text");
     if (t && t.split("\n").length > 2) loadText(t, "colado.csv");
   });
