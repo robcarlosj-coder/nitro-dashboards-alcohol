@@ -1572,7 +1572,7 @@
   })();
 
   /* ========================================== 21. chat com IA (Gemini) */
-  /* Botão na base central abre um chat que responde SOBRE O RECORTE ATIVO.
+  /* Botão no canto inferior direito abre um chat que responde SOBRE O RECORTE ATIVO.
      O contexto é montado a cada pergunta a partir de filtered() — a mesma
      função que alimenta os gráficos —, então os filtros são sempre
      respeitados. Nada é pré-calculado nem mockado. */
